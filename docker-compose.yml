@@ -1,0 +1,41 @@
+name: drf-logs-cassandra
+
+services:
+  cassandra:
+    image: cassandra:4.1
+    environment:
+      - MAX_HEAP_SIZE=1G
+      - HEAP_NEWSIZE=256M
+      - CASSANDRA_CLUSTER_NAME=api-logs
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandradata:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  web:
+    build: ./app
+    ports:
+      - "8001:8000"
+    environment:
+      - DJANGO_DEBUG=false
+      - CASSANDRA_HOSTS=cassandra
+      - DJANGO_TIME_ZONE=${DJANGO_TIME_ZONE:-UTC}
+      # Local-dev admin login, created on first start. Change these.
+      - DJANGO_SUPERUSER_USERNAME=admin
+      - DJANGO_SUPERUSER_PASSWORD=admin
+      - DJANGO_SUPERUSER_EMAIL=admin@example.com
+    volumes:
+      - webdata:/data
+    depends_on:
+      cassandra:
+        condition: service_healthy
+
+volumes:
+  cassandradata:
+  webdata:

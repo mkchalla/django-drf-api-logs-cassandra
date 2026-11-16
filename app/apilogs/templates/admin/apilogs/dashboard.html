@@ -1,0 +1,152 @@
+{% extends "admin/base_site.html" %}
+{% load static humanize %}
+
+{% block title %}API logs | {{ site_title|default:"Django site admin" }}{% endblock %}
+{% block bodyclass %}{{ block.super }} app-apilogs model-apilog change-list{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}">
+{% include "admin/apilogs/_styles.html" %}
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Home</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+  &rsaquo; API logs
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <div class="module filtered" id="changelist">
+    <div class="changelist-form-container">
+
+      <p class="al-range">
+        {{ period_label }} &middot; {{ range_start|date:"D j M Y" }}{% if range_start != range_end %} – {{ range_end|date:"D j M Y" }}{% endif %}
+        {% if status_filter %}&middot; status <strong>{{ status_filter }}</strong>{% endif %}
+        <span class="al-tz">({{ time_zone }})</span>
+      </p>
+
+      {% if error %}
+        <ul class="messagelist"><li class="error">{{ error }}</li></ul>
+      {% else %}
+
+      <div class="al-cards">
+        <div class="al-card"><span class="al-card-label">Requests</span><span class="al-card-value">{{ summary.total|intcomma }}</span></div>
+        <div class="al-card"><span class="al-card-label">Errors (4xx + 5xx)</span><span class="al-card-value">{{ summary.errors|intcomma }}</span><span class="al-card-sub">{{ summary.error_rate }}% of requests</span></div>
+        <div class="al-card"><span class="al-card-label">Server errors (5xx)</span><span class="al-card-value {% if summary.server_errors %}al-5xx-text{% endif %}">{{ summary.server_errors|intcomma }}</span></div>
+        <div class="al-card"><span class="al-card-label">Avg response time</span><span class="al-card-value">{{ summary.avg_ms }}<small> ms</small></span></div>
+      </div>
+
+      <div class="al-panels">
+        <section class="module al-panel">
+          <h2>Requests per {% if chart_weekly %}week{% else %}day{% endif %}</h2>
+          <div class="al-chart" role="img" aria-label="Requests per {% if chart_weekly %}week{% else %}day{% endif %} by status class">
+            <div class="al-yaxis"><span>{{ chart_max|intcomma }}</span><span>0</span></div>
+            <div class="al-bars {% if chart|length > 14 %}al-bars-dense{% endif %}">
+              {% for d in chart %}
+              <div class="al-col" title="{% if chart_weekly %}{{ d.day|date:'j M' }} – {{ d.end|date:'j M' }}{% if d.days < 7 %} ({{ d.days }} days){% endif %}{% else %}{{ d.day|date:'D j M' }}{% endif %}: {{ d.total|intcomma }} requests{% for s in d.segments %} · {{ s.cls }} {{ s.count }}{% endfor %}">
+                <div class="al-bar-area">
+                  <div class="al-bar" style="height: {{ d.height }}%">
+                    {% for s in d.segments %}<div class="al-seg al-{{ s.cls }}" style="height: {{ s.pct }}%"></div>{% endfor %}
+                  </div>
+                </div>
+                <span class="al-xlabel">{% if chart|length > 14 %}{% if forloop.revcounter0|divisibleby:5 %}{{ d.day|date:"j M" }}{% endif %}{% elif chart_weekly %}{% if forloop.revcounter0|divisibleby:2 %}{{ d.day|date:"j M" }}{% endif %}{% else %}{{ d.day|date:"D j" }}{% endif %}</span>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="al-legend">
+            {% for c in status_choices %}{% if c.cls %}<span><i class="al-swatch al-{{ c.cls }}"></i>{{ c.label }}</span>{% endif %}{% endfor %}
+          </div>
+        </section>
+
+        <section class="module al-panel">
+          <h2>By status code</h2>
+          {% if breakdown %}
+          <table class="al-breakdown">
+            {% for c in breakdown %}
+            <tr>
+              <th><a href="{{ c.url }}" class="al-badge al-{{ c.cls }}">{{ c.label }}</a></th>
+              <td class="al-track"><div class="al-fill al-{{ c.cls }}" style="width: {{ c.pct }}%"></div></td>
+              <td class="al-num">{{ c.count|intcomma }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+          {% else %}<p class="al-empty">No requests in this period.</p>{% endif %}
+        </section>
+      </div>
+
+      <div class="results">
+        <table id="result_list">
+          <thead>
+            <tr>
+              <th scope="col"><div class="text"><span>Time</span></div></th>
+              <th scope="col"><div class="text"><span>Method</span></div></th>
+              <th scope="col"><div class="text"><span>API</span></div></th>
+              <th scope="col"><div class="text"><span>Status</span></div></th>
+              <th scope="col" class="al-num"><div class="text"><span>Time taken</span></div></th>
+              <th scope="col"><div class="text"><span>Client IP</span></div></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <th class="al-nowrap"><a href="{{ row.id }}/{% if current_query %}?back={{ current_query|urlencode }}{% endif %}">{{ row.added_on|date:"Y-m-d H:i:s" }}</a></th>
+              <td><code>{{ row.method }}</code></td>
+              <td class="al-api">{{ row.api }}</td>
+              <td><span class="al-badge al-{{ row.status_class }}">{{ row.status_code }}</span></td>
+              <td class="al-num al-nowrap">{{ row.execution_ms }} ms</td>
+              <td>{{ row.client_ip_address|default:"–" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="al-empty">No API logs match these filters.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <p class="paginator al-pager">
+        {% if paged %}<a href="{{ first_page_url }}">&laquo; Newest</a>{% endif %}
+        {% if next_page_url %}<a href="{{ next_page_url }}">Older &rsaquo;</a>{% endif %}
+        <span>{{ rows|length }} row{{ rows|length|pluralize }} on this page</span>
+      </p>
+      {% endif %}
+    </div>
+
+    <nav id="changelist-filter" aria-labelledby="changelist-filter-header">
+      <h2 id="changelist-filter-header">Filter</h2>
+      <details data-filter-title="period" open>
+        <summary>By date</summary>
+        <ul>
+          {% for p in periods %}
+          <li{% if p.selected %} class="selected"{% endif %}><a href="{{ p.url }}">{{ p.label }}</a></li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% if not error %}
+      <details data-filter-title="status" open>
+        <summary>By status class</summary>
+        <ul>
+          {% for c in status_choices %}
+          <li{% if c.selected %} class="selected"{% endif %}><a href="{{ c.url }}">{{ c.label }} <span class="al-count">{{ c.count|intcomma }}</span></a></li>
+          {% endfor %}
+        </ul>
+      </details>
+      <details data-filter-title="status code" open>
+        <summary>By status code</summary>
+        <ul>
+          {% for c in code_choices %}
+          <li{% if c.selected %} class="selected"{% endif %}><a href="{{ c.url }}">{{ c.label }} <span class="al-count">{{ c.count|intcomma }}</span></a></li>
+          {% empty %}
+          <li><span class="al-empty">None in this period</span></li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endif %}
+    </nav>
+  </div>
+</div>
+{% endblock %}
